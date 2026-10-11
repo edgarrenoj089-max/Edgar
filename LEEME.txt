@@ -1,0 +1,12 @@
+CLIPPY IA — INSTALACIÓN EN ANDROID
+
+Esta carpeta contiene una aplicación web progresiva (PWA) con icono propio. NO es un APK.
+
+1. Publica TODOS los archivos y la carpeta icons/ en un hosting HTTPS (por ejemplo GitHub Pages o Netlify).
+2. Abre la URL publicada en Chrome de Android.
+3. En el menú ⋮ selecciona «Instalar aplicación» o «Agregar a pantalla principal».
+4. Clippy aparecerá con icono propio y abrirá como una app.
+
+Abrir index.html directamente desde el gestor de archivos NO permite la instalación PWA ni el funcionamiento del service worker.
+El modo local y la interfaz pueden funcionar sin conexión después de una primera carga en HTTPS; Gemini requiere internet y una clave API.
+IMPORTANTE: la clave de Gemini se usa directamente desde el navegador, no es segura para distribuir públicamente. No publiques claves dentro del código. Para una versión comercial, usa backend seguro.
