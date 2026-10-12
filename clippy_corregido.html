@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#07145f"><title>Clippy IA</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#181b20;color:#f5f6fb;font:16px system-ui,Arial}
+.app{height:100dvh;display:flex;flex-direction:column;max-width:900px;margin:auto}
+header{background:#07145f;padding:16px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+header small{font-size:12px;color:#d3d9ed}.buttons{display:flex;gap:7px}
+button{border:0;border-radius:10px;padding:11px;background:#444d60;color:white;font:inherit;cursor:pointer}
+button.primary{background:#123f9c;font-weight:bold}button:disabled{opacity:.5}
+.notice{padding:12px 16px;background:#302300;color:#f7d58d;font-size:13px}
+.messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:13px}
+.msg{max-width:88%;border:1px solid #4b5361;border-radius:18px;padding:15px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55}
+.msg.user{background:#06186d;border-color:#06186d;align-self:flex-end}
+.msg.model{align-self:flex-start;background:#22252b}.who{font-size:12px;color:#a7b0c2;font-weight:bold;margin-bottom:9px}
+.composer{display:flex;gap:8px;padding:12px;border-top:1px solid #444;align-items:flex-end}
+textarea{background:#2c2d30;color:white;border:1px solid #5d6a7c;border-radius:12px;flex:1;min-width:0;padding:13px;font:inherit;resize:none;max-height:150px}
+.status{padding:0 14px 9px;font-size:12px;color:#aeb7c8}
+.backdrop{position:fixed;inset:0;background:#000b;display:none;align-items:center;justify-content:center;padding:18px}
+.backdrop.open{display:flex}.modal{width:min(480px,100%);background:#24272d;padding:22px;border-radius:16px;max-height:90dvh;overflow:auto}
+.modal input,.modal select{width:100%;background:#30343b;color:white;padding:13px;border:1px solid #63718a;border-radius:9px;margin:7px 0 16px;font:inherit}
+.modal label{display:block}.modal p{font-size:13px;line-height:1.5;color:#d4d7de}
+.modal .actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}a{color:#a9c7ff}
+</style></head>
+<body>
+<div class="app">
+<header><div><strong>📎 Clippy IA</strong><br><small>Tu asistente retro inteligente</small></div>
+<div class="buttons"><button id="export" title="Guardar conversación">⬇️</button><button id="new">+ Nuevo</button><button id="settings" title="Configuración">⚙️</button></div></header>
+<div id="notice" class="notice">Modo local. Abre ⚙️ para conectar Gemini.</div>
+<div id="messages" class="messages" aria-live="polite"></div>
+<form id="form" class="composer"><textarea id="input" rows="2" placeholder="Escribe tu mensaje..." aria-label="Mensaje"></textarea><button id="send" class="primary">Enviar ➜</button></form>
+<div id="status" class="status">Las conversaciones se guardan en este navegador.</div>
+</div>
+<div id="backdrop" class="backdrop"><div class="modal" role="dialog" aria-modal="true">
+<h2>⚙️ Configuración</h2>
+<p>Pega tu clave privada de Google AI Studio. No la compartas ni la publiques en GitHub.</p>
+<label for="key">Clave API de Gemini</label><input id="key" type="password" placeholder="Pega tu clave aquí" autocomplete="off">
+<label for="model">Modelo Gemini disponible</label><select id="model"><option value="">Detectar automáticamente</option></select>
+<p>La aplicación consulta qué modelos están disponibles para tu clave. La clave solo se conserva en memoria durante esta sesión. Para una aplicación pública con múltiples usuarios, utiliza un servidor seguro.</p>
+<p><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Abrir Google AI Studio</a></p>
+<div class="actions"><button id="disconnect">Desconectar</button><button id="test">Probar conexión</button><button id="save" class="primary">Guardar</button></div>
+<p id="diagnostic" role="status"></p>
+</div></div>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const intro={role:'model',text:'¡Hola! 📎 Soy Clippy. Para conversar con Gemini, abre ⚙️, pega tu clave API y pulsa «Probar conexión». ¿En qué puedo ayudarte?'};
+let key='',model='',busy=false,chat=[];
+try{const saved=JSON.parse(localStorage.getItem('clippy_ia_chat_v3')||'[]');chat=Array.isArray(saved)?saved.filter(x=>['user','model'].includes(x.role)&&typeof x.text==='string').slice(-100):[]}catch{}
+if(!chat.length)chat=[intro];
+function persist(){try{localStorage.setItem('clippy_ia_chat_v3',JSON.stringify(chat.slice(-100)))}catch{}}
+function render(){const box=$('messages');box.replaceChildren();for(const item of chat){const el=document.createElement('div');el.className='msg '+item.role;const who=document.createElement('div');who.className='who';who.textContent=item.role==='user'?'TÚ':'📎 CLIPPY';const t=document.createElement('div');t.textContent=item.text;el.append(who,t);box.append(el)}box.scrollTop=box.scrollHeight}
+function add(role,text){chat.push({role,text});persist();render()}
+function setMode(){$('notice').textContent=key?'Gemini configurado. Tus mensajes se envían a Google.':'Modo local. Abre ⚙️ para conectar Gemini.'}
+function localAnswer(t){return /^hola\b/i.test(t)?'¡Hola! Para activar inteligencia artificial, abre ⚙️ y conecta Gemini.':'📎 Estoy en modo local. Abre ⚙️ para conectar Gemini y responder preguntas.'}
+async function modelsFor(k){
+const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100',{headers:{'x-goog-api-key':k}});
+const d=await r.json();if(!r.ok)throw new Error('Google '+r.status+': '+(d.error?.message||'Error de acceso'));
+return(d.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace(/^models\//,''));
+}
+async function selectModel(k){
+const names=await modelsFor(k);if(!names.length)throw new Error('Tu clave no tiene modelos compatibles con generateContent.');
+const preferred=['gemini-2.5-flash','gemini-2.5-flash-lite'];
+model=names.includes($('model').value)?$('model').value:(names.includes(model)?model:(preferred.find(x=>names.includes(x))||names.find(x=>/flash/i.test(x))||names[0]));
+const sel=$('model');sel.replaceChildren();for(const n of names){const op=document.createElement('option');op.value=n;op.textContent=n;sel.append(op)}sel.value=model;return model;
+}
+async function generate(k,m,contents,signal){
+const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(m)+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':k},body:JSON.stringify({contents}),signal});
+const d=await r.json();if(!r.ok)throw new Error('Google '+r.status+': '+(d.error?.message||'Error desconocido'));
+return d.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('\n').trim()||'El modelo no devolvió texto.';
+}
+async function askGemini(){
+if(!model)await selectModel(key);
+const history=chat.filter(x=>x.role==='user'||(x.role==='model'&&x!==intro&&!x.text.startsWith('No pude conectar con Gemini:'))).slice(-16);
+const contents=[];for(const x of history){
+if(x.role==='model'&&(!contents.length||contents[contents.length-1].role!=='user'))continue;
+if(x.role==='user'&&contents.length&&contents[contents.length-1].role==='user'){contents[contents.length-1].parts[0].text+='\n'+x.text;continue}
+contents.push({role:x.role,parts:[{text:x.text}]});
+}
+const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),40000);
+try{return await generate(key,model,contents,controller.signal)}finally{clearTimeout(timer)}
+}
+$('form').onsubmit=async e=>{e.preventDefault();const t=$('input').value.trim();if(!t||busy)return;$('input').value='';add('user',t);busy=true;$('send').disabled=true;$('status').textContent='Preparando respuesta…';
+try{add('model',key?await askGemini():localAnswer(t))}
+catch(e){add('model','No pude conectar con Gemini: '+(e.name==='AbortError'?'La solicitud tardó demasiado':e.message))}
+finally{busy=false;$('send').disabled=false;$('status').textContent='Las conversaciones se guardan en este navegador.'}};
+$('input').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('form').requestSubmit()}};
+$('settings').onclick=()=>{$('key').value=key;$('model').value=model;$('diagnostic').textContent='';$('backdrop').classList.add('open')};
+$('save').onclick=async()=>{const k=$('key').value.trim();if(!k){$('diagnostic').textContent='Introduce tu clave API.';return}
+try{await selectModel(k);key=k;$('diagnostic').textContent='Modelo detectado: '+model;$('backdrop').classList.remove('open');setMode()}
+catch(e){$('diagnostic').textContent=e.message}};
+$('test').onclick=async()=>{const k=$('key').value.trim();if(!k){$('diagnostic').textContent='Introduce tu clave API.';return}
+const d=$('diagnostic');d.textContent='Comprobando conexión…';
+try{await selectModel(k);const reply=await generate(k,model,[{role:'user',parts:[{text:'Responde brevemente: conexión correcta'}]}]);key=k;d.textContent='Conexión correcta con '+model+'. '+reply;setMode()}
+catch(e){d.textContent='Diagnóstico: '+e.message}};
+$('disconnect').onclick=()=>{key='';model='';$('key').value='';$('backdrop').classList.remove('open');setMode()};
+$('backdrop').onclick=e=>{if(e.target===$('backdrop'))$('backdrop').classList.remove('open')};
+$('new').onclick=()=>{if(confirm('¿Iniciar nueva conversación?')){chat=[intro];persist();render()}};
+$('export').onclick=()=>{const blob=new Blob([chat.map(x=>(x.role==='user'?'TÚ':'CLIPPY')+'\n'+x.text).join('\n\n')],{type:'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='clippy-conversacion.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+render();setMode();
+if('serviceWorker' in navigator)window.addEventListener('load',async()=>{try{for(const w of await navigator.serviceWorker.getRegistrations())await w.unregister()}catch{}});
+</script></body></html>
